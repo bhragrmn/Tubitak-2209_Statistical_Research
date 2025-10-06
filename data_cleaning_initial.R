@@ -244,3 +244,109 @@ sonuc_itt2 <- optim(
 )
 
 print(sonuc_itt2$par)
+
+
+rm(list=ls())
+alpha_gercek=2
+sigma_gercek=3
+n=100
+x=rweibull(n,alpha_gercek,sigma_gercek) #gözlem zamanı
+#sansur gostergesi (bu sadece bir ornek, gercek veride bu bize verilecek)
+#ornegin; rasgele %20'si sansurlu olsun (0=Sansurlu 1=Gozlenmis)
+delta=rbinom(n,1,prob= 0.8)
+
+log_olab_cencored=function(par, x, delta)
+{
+  alpha=par[1]
+  sigma=par[2]
+  #kontrol: parametreler negatif olamaz
+  if(alpha<=0 || sigma<= 0) return(1e+10)
+  #log_f: Gozlenenler icin log(PDF) katkısı
+  log_f = dweibull(x,shape=alpha,scale=sigma, log=TRUE)
+  #log_S: Sansurlenenler icin log(Survival Function)
+  #/Hayatta kalma fonksiyonu katkısı
+  log_S = pweibull(x,shape=alpha,scale=sigma,lower.tail =  FALSE, log.p=TRUE)
+  #Tek bir toplam (ll) içinde sansur mantıgını uygulama
+  ll=sum(delta*log_f+(1-delta)*log_S)
+  #Optim minimum bulur, biz max aradığımız için - ile çarpıyoruz
+  return(-ll)
+}
+  baslangic_tahmini=c(1,1)
+  MLE_sonucu_sansur=optim(par = baslangic_tahmini, fn= log_olab_cencored, x=x, delta=delta, method="L-BFGS")
+  
+  
+  cat("----------------------------------------------\n")
+  cat("TÜBİTAK Projesi Çıktısı:\n")
+  cat("Gerçek Alpha:", alpha_gercek, " | Tahmini Alpha (alpha_hat):", MLE_sonucu_sansur$par[1], "\n")
+  cat("Gerçek Sigma:", sigma_gercek, " | Tahmini Sigma (sigma_hat):", MLE_sonucu_sansur$par[2], "\n")
+  cat("----------------------------------------------\n")
+  
+  #########
+  simulasyon_cikti_weibull = function(alpha_gercek, sigma_gercek, n , sansur_orani)
+  {
+    x=rweibull(n, shape=alpha_gercek, scale=sigma_gercek)
+    delta=rbinom(n,size=1, prob=(1-sansur_orani))
+    log_olab_cencored=function(par,x,delta)
+    {
+      alpha=par[1]; sigma=par[2]
+      if (alpha<=0 || sigma<=0) return(1e+10)
+      log_f = dweibull(x,shape=alpha,scale=sigma, log=TRUE)
+      log_S = pweibull(x,shape=alpha,scale=sigma,lower.tail =  FALSE, log.p=TRUE)
+      ll=sum(delta*log_f+(1-delta)*log_S)
+      return(-ll)
+    }
+      baslangic_tahmini=c(1,1)
+      MLE_sonucu=optim(par = baslangic_tahmini, fn= log_olab_cencored, x=x, delta=delta, method="L-BFGS")
+      cat("----------------------------------------------\n")
+      cat("Simülasyon Sonucu (n=", n, ", %", sansur_orani*100, " Sansür):\n")
+      cat("Gerçek Alpha:", alpha_gercek, " | Tahmini Alpha:", MLE_sonucu$par[1], "\n")
+      cat("Gerçek Sigma:", sigma_gercek, " | Tahmini Sigma:", MLE_sonucu$par[2], "\n")
+      cat("----------------------------------------------\n")
+      # (İleride MSE/Bias hesaplamak için kullanılacak)
+      return(list(alpha_hat = MLE_sonucu$par[1], sigma_hat = MLE_sonucu$par[2]))
+  }
+sonuc=simulasyon_cikti_weibull(alpha_gercek=3, sigma_gercek = 2, n=100, sansur_orani = 0.2)
+simulasyon_cikti_weibull(alpha_gercek = 3, sigma_gercek = 2, n = 100, sansur_orani = 0.2)
+  
+###########
+# ----------------------------------------------------------------------
+# FONKSİYON 2: NIHAI KULLANICI İÇİN (Gerçek Veriyi Analiz Eder)
+# ----------------------------------------------------------------------
+
+tahmin_et_weibull_sansur <- function(veri_zamani, sansur_durumu, baslangic_tahmini = c(2, 2)) {
+  
+  # Log-Olabilirlik Fonksiyonu (Simülasyon fonksiyonuyla AYNI)
+  log_olab_cencored <- function(par, x, delta) {
+    alpha <- par[1] ; sigma <- par[2] 
+    if (alpha <= 0 || sigma <= 0) return(1e+10) 
+    log_f <- dweibull(x, shape=alpha, scale=sigma, log = TRUE)
+    log_S <- pweibull(x, shape=alpha, scale=sigma, lower.tail = FALSE, log.p = TRUE)
+    ll <- sum(delta * log_f + (1 - delta) * log_S) 
+    return(-ll)
+  }
+  # Optimizasyonu Çalıştır (Şimdi bizim ürettiğimiz veriye değil, kullanıcının verisine çalışır)
+  MLE_sonucu <- optim(par = baslangic_tahmini,fn = log_olab_cencored,x = veri_zamani,delta = sansur_durumu,method = "L-BFGS-B" )
+  # Çıktı olarak Tahmin Edilen Parametreleri ve optimizasyon detaylarını verir
+  return(list(
+    Alpha_Hat = MLE_sonucu$par[1], 
+    Sigma_Hat = MLE_sonucu$par[2],
+    Converged = MLE_sonucu$convergence == 0 # True ise optimizasyon başarılı
+  ))
+}
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
