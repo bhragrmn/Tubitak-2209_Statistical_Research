@@ -6,7 +6,7 @@
 # r(random(rasgele sayi uretme ))
 
 #ustel PDF                              #Weibull PDF
-f(x,lambda) =(lambda*exp(-lambda*x))    we??bull=(shape / scale) * (x / scale)^(shape - 1) * exp(- (x / scale)^shape)
+f(x,lambda) =(lambda*exp(-lambda*x))    weibull=(shape / scale) * (x / scale)^(shape - 1) * exp(- (x / scale)^shape)
 
 
 # K???S testi CDF ile ??al??????r, ????nk?? test, empirik CDF ile teorik CDF???yi karsilastirir.
@@ -34,7 +34,7 @@ rexp(r,rate)        rweibull(r,shape,scale)
 # D buyukse ??? Fark fazladir, dagilima uymama ihtimali artar.
 
 
-#p-de??eri:
+#p-degeri:
 Yorumlama:
   # p ??? 0.05: Dagilima uyum var (reddedilemez).
   
@@ -334,6 +334,68 @@ tahmin_et_weibull_sansur <- function(veri_zamani, sansur_durumu, baslangic_tahmi
   ))
 }
   
+#gözlem sayısı 
+n=1000
+alpha=5 #shape
+beta=2  #scale 
+veri_seti=rweibull(n,shape = alpha,scale = beta)
+head(veri_seti)
+head(veri_seti,n)
+length(veri_seti)
+veri_seti_matrix=matrix(veri_seti,ncol = 2)
+
+#inverse rayleigh sayı üretimi 
+
+rm(list = ls())
+theta=3
+n=100
+pdf = function(x, theta){
+  (2*theta^2)/(x^3)*exp(-(theta^2/x^2))
+}
+cdf= function(x,theta){
+  (exp(-(theta^2/x^2)))
+}
+
+rinverserayleigh=function(n,theta){
+  u=runif(n)
+  x=theta/sqrt(-log(u))
+  return(x)}
+veriseti=rinverserayleigh(n,theta = 3)
+head(veriseti)
+
+beklenendegeri=theta*sqrt(pi)
+varyans=theta^2*(4-pi)/2
+#inverse rayleigh mle
+loglik_inverserayleigh=function(theta, x) {
+  if (theta <= 0) return(NA)
+  #düzeltme: yukarıdaki pdf fonksiyonunu kullanıyoruz
+  -sum(log(pdf(x,theta)))
+}
+#sansürlü negatif log olabilirlik
+cencoredloglik= function(theta,x,delta)
+{
+  if(theta<=0) return(NA)
+  #pdf ve cdf leri kullandık
+  -sum(delta*log(pdf(x,theta))+(1-delta)*log(1-cdf(x,theta)))
+}
+veri=rinverserayleigh(n, theta)
+teta_tahmin=function(veri, baslangic_teta = 1) {
+  sonuc=optim(par = baslangic_teta,fn = loglik_inverserayleigh,x = veri,method = "BFGS")
+  return(sonuc)
+}
+teta_sonucu=teta_tahmin(veri,2)
+teta_sonucu$par #tahmin edilen Theta sonucu
+teta_sonucu$value #log-likelihood değeri
+beklenendegeri
+mean(veri)
+
+
+#sonuçlar
+cat("Gerçek Theta:", theta, "\n")
+cat("MLE Tahmini:", teta_sonucu$par, "\n")
+cat("E[X]:", beklenendegeri, "\n")
+cat("Gözlemlenen E[X] (mean(veri)):", mean(veri), "\n")
+
   
   
   
