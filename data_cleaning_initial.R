@@ -396,6 +396,370 @@ cat("MLE Tahmini:", teta_sonucu$par, "\n")
 cat("E[X]:", beklenendegeri, "\n")
 cat("Gözlemlenen E[X] (mean(veri)):", mean(veri), "\n")
 
+
+#Tez icin 
+#tam örneklem
+rm(list = ls())
+set.seed(NULL)
+
+theta = 3
+n = 100
+ds = 500
+
+pdf = function(x, theta){
+  (2*theta^2)/(x^3)*exp(-(theta^2/x^2))
+}
+
+cdf = function(x,theta){
+  exp(-(theta^2/x^2))
+}
+
+rinverserayleigh = function(n,theta){
+  u = runif(n)
+  theta/sqrt(-log(u))
+}
+
+loglik_inverserayleigh = function(theta, x){
+  if(theta <= 0) return(NA)
+  -sum(log(pdf(x,theta)))
+}
+
+theta_hat_vec = numeric(ds)
+cover = numeric(ds)
+ci_length = numeric(ds)
+
+for(i in 1:ds){
+  
+  veri = rinverserayleigh(n, theta)
+  
+  fit = optim(par = 2,
+              fn = loglik_inverserayleigh,
+              x = veri,
+              method = "BFGS")
+  
+  theta_hat = fit$par
+  theta_hat_vec[i] = theta_hat
+  
+  hessian = optimHess(par = theta_hat,
+                      fn = loglik_inverserayleigh,
+                      x = veri)
+  
+  se = sqrt(solve(hessian))
+  
+  lower = theta_hat - 1.96 * se
+  upper = theta_hat + 1.96 * se
+  
+  cover[i] = (theta >= lower & theta <= upper)
+  ci_length[i] = upper - lower
+}
+
+bias = mean(theta_hat_vec) - theta
+mse  = mean((theta_hat_vec - theta)^2)
+
+coverage_probability = mean(cover)
+average_ci_length = mean(ci_length)
+
+bias
+mse
+coverage_probability
+average_ci_length
+
+
+
+#weibull icin tam örneklem
+rm(list = ls())
+set.seed(NULL)
+
+alpha_true = 2
+beta_true  = 3
+
+n  = 500
+ds = 1000
+
+loglik_full = function(par, x){
+  
+  alpha = par[1]
+  beta  = par[2]
+  
+  if(alpha <= 0 || beta <= 0) return(1e10)
+  
+  ll = sum(
+    log(alpha / beta) +
+      (alpha - 1) * log(x / beta) -
+      (x / beta)^alpha
+  )
+  
+  return(-ll)
+}
+
+alpha_hat_vec = numeric(ds)
+beta_hat_vec  = numeric(ds)
+
+cover_alpha = numeric(ds)
+len_alpha   = numeric(ds)
+
+cover_beta = numeric(ds)
+len_beta   = numeric(ds)
+
+for(i in 1:ds){
+  
+  x = rweibull(n, alpha_true, beta_true)
+  
+  fit = optim(
+    par = c(1, 1),
+    fn  = loglik_full,
+    x   = x,
+    method = "BFGS",
+    hessian = TRUE
+  )
+  
+  alpha_hat = fit$par[1]
+  beta_hat  = fit$par[2]
+  
+  vcov_mat = solve(fit$hessian)
+  
+  se_alpha = sqrt(vcov_mat[1,1])
+  se_beta  = sqrt(vcov_mat[2,2])
+  
+  se_log_alpha = se_alpha / alpha_hat
+  lower_a = exp(log(alpha_hat) - 1.96 * se_log_alpha)
+  upper_a = exp(log(alpha_hat) + 1.96 * se_log_alpha)
+  
+  lower_b = beta_hat - 1.96 * se_beta
+  upper_b = beta_hat + 1.96 * se_beta
+  
+  cover_alpha[i] = (alpha_true >= lower_a & alpha_true <= upper_a)
+  len_alpha[i]   = upper_a - lower_a
+  
+  cover_beta[i] = (beta_true >= lower_b & beta_true <= upper_b)
+  len_beta[i]   = upper_b - lower_b
+  
+  alpha_hat_vec[i] = alpha_hat
+  beta_hat_vec[i]  = beta_hat
+}
+
+bias_alpha = mean(alpha_hat_vec) - alpha_true
+bias_beta  = mean(beta_hat_vec)  - beta_true
+
+mse_alpha = mean((alpha_hat_vec - alpha_true)^2)
+mse_beta  = mean((beta_hat_vec  - beta_true )^2)
+
+sonuc_tablo = data.frame(
+  Parametre = c("alpha", "beta"),
+  True_Value = c(alpha_true, beta_true),
+  Bias = c(bias_alpha, bias_beta),
+  MSE = c(mse_alpha, mse_beta),
+  Coverage_95 = c(mean(cover_alpha), mean(cover_beta)),
+  Mean_CI_Length = c(mean(len_alpha), mean(len_beta))
+)
+
+sonuc_tablo
+
+
+
+#tip-2 sagdan soldan sansurlu orneklem 
+#weibull icin 
+
+rm(list = ls())
+library(numDeriv)
+set.seed(NULL)
+
+alpha_true = 2
+beta_true  = 3
+
+n  = 500
+r1 = 100
+r2 = 25
+ds = 500
+
+loglik_censored = function(par, x_mid, x1, x2){
+  
+  alpha = par[1]
+  beta  = par[2]
+  
+  if(alpha <= 0 || beta <= 0) return(1e10)
+  
+  cdfW = function(x,a,b){
+    1 - exp(-(x/b)^a)
+  }
+  
+  pdfW = function(x,a,b){
+    (a/b) * (x/b)^(a-1) * exp(-(x/b)^a)
+  }
+  
+  ll =
+    r1 * log(cdfW(x1, alpha, beta)) +
+    r2 * log(1 - cdfW(x2, alpha, beta)) +
+    sum(log(pdfW(x_mid, alpha, beta)))
+  
+  return(-ll)
+}
+
+alpha_hat_vec = numeric(ds)
+beta_hat_vec  = numeric(ds)
+
+cover_alpha = numeric(ds)
+len_alpha   = numeric(ds)
+
+cover_beta = numeric(ds)
+len_beta   = numeric(ds)
+
+for(i in 1:ds){
+  
+  x_full = rweibull(n, alpha_true, beta_true)
+  xs = sort(x_full)
+  
+  x1    = xs[r1 + 1]
+  x2    = xs[n - r2]
+  x_mid = xs[(r1 + 1):(n - r2)]
+  
+  fit = optim(
+    par = c(1, 1),
+    fn  = loglik_censored,
+    x_mid = x_mid,
+    x1 = x1,
+    x2 = x2,
+    method = "BFGS",
+    hessian = TRUE
+  )
+  
+  alpha_hat = fit$par[1]
+  beta_hat  = fit$par[2]
+  
+  vcov_mat = solve(fit$hessian)
+  
+  se_alpha = sqrt(vcov_mat[1,1])
+  se_beta  = sqrt(vcov_mat[2,2])
+  
+  # log-GA (alpha)
+  se_log_alpha = se_alpha / alpha_hat
+  lower_a = exp(log(alpha_hat) - 1.96 * se_log_alpha)
+  upper_a = exp(log(alpha_hat) + 1.96 * se_log_alpha)
+  
+  # klasik GA (beta)
+  lower_b = beta_hat - 1.96 * se_beta
+  upper_b = beta_hat + 1.96 * se_beta
+  
+  cover_alpha[i] = (alpha_true >= lower_a & alpha_true <= upper_a)
+  len_alpha[i]   = upper_a - lower_a
+  
+  cover_beta[i] = (beta_true >= lower_b & beta_true <= upper_b)
+  len_beta[i]   = upper_b - lower_b
+  
+  alpha_hat_vec[i] = alpha_hat
+  beta_hat_vec[i]  = beta_hat
+}
+
+mean(cover_alpha)
+mean(cover_beta)
+# Bias (Monte Carlo)
+bias_alpha = mean(alpha_hat_vec) - alpha_true
+bias_beta  = mean(beta_hat_vec)  - beta_true
+
+# Ortalama GA uzunlukları
+mean_len_alpha = mean(len_alpha)
+mean_len_beta  = mean(len_beta)
+
+# Coverage
+coverage_alpha = mean(cover_alpha)
+coverage_beta  = mean(cover_beta)
+
+# Sonuç Tablosu
+sonuc_tablo = data.frame(
+  Parametre = c("alpha", "beta"),
+  True_Value = c(alpha_true, beta_true),
+  MLE_Mean = c(mean(alpha_hat_vec), mean(beta_hat_vec)),
+  Bias = c(bias_alpha, bias_beta),
+  Coverage_95 = c(coverage_alpha, coverage_beta),
+  Mean_CI_Length = c(mean_len_alpha, mean_len_beta)
+)
+
+sonuc_tablo
+
+#inverse 
+rm(list = ls())
+library(numDeriv)
+set.seed(NULL)
+
+theta = 3
+n = 100
+r1 = 10
+r2 = 15
+ds = 1000
+
+rinvrayleigh = function(n, theta){
+  u = runif(n)
+  theta / sqrt(-log(1 - u))
+}
+
+pdfIR = function(x,theta){
+  (2*theta^2 / x^3) * exp(-(theta^2 / x^2))
+}
+
+cdfIR = function(theta,x){
+  exp(-(theta^2 / x^2))
+}
+
+loglik_censored = function(theta, xall){
+  
+  if(theta <= 0) return(1e10)
+  
+  xs = sort(xall)
+  n  = length(xs)
+  
+  x_L   = xs[r1]
+  x_R   = xs[n - r2 + 1]
+  x_mid = xs[(r1+1):(n-r2)]
+  
+  ll =
+    r1 * log(cdfIR(theta, x_L)) +
+    r2 * log(1 - cdfIR(theta, x_R)) +
+    sum(log(pdfIR(x_mid, theta)))
+  
+  -ll
+}
+
+theta_hat_vec = numeric(ds)
+cover = numeric(ds)
+ci_length = numeric(ds)
+
+for(i in 1:ds){
+  
+  xall = rinvrayleigh(n, theta)
+  
+  fit = optim(
+    par = 1,
+    fn = loglik_censored,
+    xall = xall,
+    method = "BFGS",
+    hessian = TRUE
+  )
+  
+  th_hat = fit$par
+  theta_hat_vec[i] = th_hat
+  
+  vc = solve(fit$hessian)
+  se = sqrt(vc)
+  
+  lower = th_hat - 1.96 * se
+  upper = th_hat + 1.96 * se
+  
+  cover[i] = (theta >= lower & theta <= upper)
+  ci_length[i] = upper - lower
+}
+
+bias = mean(theta_hat_vec) - theta
+mse  = mean((theta_hat_vec - theta)^2)
+coverage = mean(cover)
+avg_ci_length = mean(ci_length)
+
+data.frame(
+  Bias = bias,
+  MSE = mse,
+  Coverage = coverage,
+  Ortalama_CI_Uzunlugu = avg_ci_length
+)
+
   
   
   
